@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { authenticate } from "../auth/authenticate.js";
 import { ConversationService } from "../services/conversations.js";
+import { AgentOrchestrator } from "../agent/orchestrator.js";
+import { loadLlmConfig, createLlmProvider, LlmError } from "../llm/index.js";
 import { sendDomainError } from "./domain-error.js";
 
 const paramsSchema = z.object({ id: z.string().min(1) });
@@ -65,6 +67,30 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       );
       return reply.code(201).send(message);
     } catch (error) {
+      return sendDomainError(error, reply);
+    }
+  });
+
+  app.post("/:id/respond", async (request, reply) => {
+    const params = paramsSchema.safeParse(request.params);
+    const body = messageSchema.safeParse(request.body);
+    if (!params.success || !body.success) {
+      return reply.code(400).send({ error: "Invalid request" });
+    }
+
+    try {
+      const orchestrator = new AgentOrchestrator(
+        createLlmProvider(loadLlmConfig()),
+      );
+      return await orchestrator.respond(request.user, params.data.id, body.data.content);
+    } catch (error) {
+      if (error instanceof LlmError) {
+        request.log.error({ code: error.code, status: error.status }, "LLM request failed");
+        return reply.code(502).send({
+          error: "The assistant is temporarily unavailable",
+          code: error.code,
+        });
+      }
       return sendDomainError(error, reply);
     }
   });

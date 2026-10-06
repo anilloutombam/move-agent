@@ -74,6 +74,22 @@ export class ConversationService {
     return this.appendMessage(actor, conversationId, "USER", content);
   }
 
+  static async linkRequest(actor: Actor, conversationId: string, requestId: string) {
+    const request = await prisma.moveRequest.findUnique({
+      where: { id: requestId },
+      select: { communityId: true, residentId: true },
+    });
+    if (!request || !canLinkRequest(actor.role, actor.userId, actor.communityId, request)) {
+      throw new DomainError("REQUEST_NOT_FOUND");
+    }
+
+    const updated = await prisma.conversation.updateMany({
+      where: { id: conversationId, userId: actor.userId, requestId: null },
+      data: { requestId },
+    });
+    if (updated.count !== 1) throw new DomainError("CONVERSATION_NOT_FOUND");
+  }
+
   static async appendAgentMessage(
     actor: Actor,
     conversationId: string,
