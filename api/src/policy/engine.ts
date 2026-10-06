@@ -71,22 +71,30 @@ export function evaluatePolicy({
       `${requestData.moveDate}T00:00:00`,
     );
 
-    const hoursUntilMove =
-      (moveDate.getTime() - now.getTime()) /
-      (1000 * 60 * 60);
-
-    if (hoursUntilMove < policy.noticeHours) {
+    if (Number.isNaN(moveDate.getTime())) {
       checks.push({
-        name: "NOTICE_PERIOD",
+        name: "MOVE_DATE",
         result: "FAIL",
-        message: `Move requires at least ${policy.noticeHours} hours notice`,
+        message: "Move date is invalid",
       });
     } else {
-      checks.push({
-        name: "NOTICE_PERIOD",
-        result: "PASS",
-        message: "Notice period requirement satisfied",
-      });
+      const hoursUntilMove =
+        (moveDate.getTime() - now.getTime()) /
+        (1000 * 60 * 60);
+
+      if (hoursUntilMove < policy.noticeHours) {
+        checks.push({
+          name: "NOTICE_PERIOD",
+          result: "FAIL",
+          message: `Move requires at least ${policy.noticeHours} hours notice`,
+        });
+      } else {
+        checks.push({
+          name: "NOTICE_PERIOD",
+          result: "PASS",
+          message: "Notice period requirement satisfied",
+        });
+      }
     }
   }
 

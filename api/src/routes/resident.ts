@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 
 import { authenticate } from "../auth/authenticate.js";
@@ -15,11 +15,15 @@ const requestParamsSchema = z.object({
 const updateDraftSchema = z.object({
   expectedVersion: z.number().int().positive(),
   requestData: z.object({
-    moveDate: z.string().optional(),
-    preferredTime: z.string().optional(),
+    moveDate: z.iso.date().optional(),
+    preferredTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
     vehicleNumber: z.string().optional(),
     documents: z.array(z.string()).optional(),
   }),
+});
+
+const versionSchema = z.object({
+  expectedVersion: z.number().int().positive(),
 });
 
 export const residentRoutes: FastifyPluginAsync = async (app) => {
@@ -205,5 +209,76 @@ export const residentRoutes: FastifyPluginAsync = async (app) => {
       throw error;
     }
   },
-);
+  );
+
+  app.post(
+    "/requests/:id/submit",
+    { preHandler: authenticate },
+    async (request, reply) => {
+      if (request.user.role !== "RESIDENT") {
+        return reply.code(403).send({ error: "Resident access required" });
+      }
+
+      const params = requestParamsSchema.safeParse(request.params);
+      const body = versionSchema.safeParse(request.body);
+      if (!params.success || !body.success) {
+        return reply.code(400).send({ error: "Invalid request" });
+      }
+
+      try {
+        return await RequestService.submit({
+          requestId: params.data.id,
+          residentId: request.user.userId,
+          communityId: request.user.communityId,
+          expectedVersion: body.data.expectedVersion,
+        });
+      } catch (error) {
+        return handleWorkflowError(error, reply);
+      }
+    },
+  );
+
+  app.post(
+    "/requests/:id/cancel",
+    { preHandler: authenticate },
+    async (request, reply) => {
+      if (request.user.role !== "RESIDENT") {
+        return reply.code(403).send({ error: "Resident access required" });
+      }
+
+      const params = requestParamsSchema.safeParse(request.params);
+      const body = versionSchema.safeParse(request.body);
+      if (!params.success || !body.success) {
+        return reply.code(400).send({ error: "Invalid request" });
+      }
+
+      try {
+        return await RequestService.cancel({
+          requestId: params.data.id,
+          residentId: request.user.userId,
+          communityId: request.user.communityId,
+          expectedVersion: body.data.expectedVersion,
+        });
+      } catch (error) {
+        return handleWorkflowError(error, reply);
+      }
+    },
+  );
 };
+
+function handleWorkflowError(error: unknown, reply: FastifyReply) {
+  if (!(error instanceof Error)) throw error;
+  if (error.message === "REQUEST_NOT_FOUND") {
+    return reply.code(404).send({ error: "Request not found" });
+  }
+  if (error.message === "REQUEST_VERSION_CONFLICT") {
+    return reply.code(409).send({ error: "Request was modified. Refresh and try again." });
+  }
+  if (error.message === "REQUEST_NOT_SUBMITTABLE") {
+    return reply.code(409).send({ error: "Request does not currently satisfy submission requirements" });
+  }
+  if (error.message.startsWith("INVALID_REQUEST_TRANSITION") || error.message.startsWith("FORBIDDEN_REQUEST_TRANSITION")) {
+    return reply.code(409).send({ error: "Request action is not allowed in its current state" });
+  }
+  throw error;
+}

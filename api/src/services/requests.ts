@@ -1,5 +1,5 @@
 import { prisma } from "../db/prisma.js";
-import { assertTransition } from "../domain/request-state.js";
+import { assertActorTransition } from "../domain/request-state.js";
 import type {
   MoveType,
   RequestStatus,
@@ -14,7 +14,8 @@ type CreateRequestInput = {
 
 type TransitionRequestInput = {
   requestId: string;
-  residentId: string;
+  actorId: string;
+  actorRole: "RESIDENT" | "ADMIN";
   communityId: string;
   to: RequestStatus;
   expectedVersion: number;
@@ -163,7 +164,8 @@ export class RequestService {
 
   static async transition({
     requestId,
-    residentId,
+    actorId,
+    actorRole,
     communityId,
     to,
     expectedVersion,
@@ -172,8 +174,8 @@ export class RequestService {
       const request = await tx.moveRequest.findFirst({
         where: {
           id: requestId,
-          residentId,
           communityId,
+          ...(actorRole === "RESIDENT" ? { residentId: actorId } : {}),
         },
       });
 
@@ -181,7 +183,7 @@ export class RequestService {
         throw new Error("REQUEST_NOT_FOUND");
       }
 
-      assertTransition(request.status, to);
+      assertActorTransition(actorRole, request.status, to);
 
       const result = await tx.moveRequest.updateMany({
         where: {
@@ -209,7 +211,7 @@ export class RequestService {
         data: {
           requestId: request.id,
           type: `STATUS_CHANGED_TO_${to}`,
-          actorId: residentId,
+          actorId,
           data: {
             from: request.status,
             to,
@@ -222,6 +224,60 @@ export class RequestService {
           id: request.id,
         },
       });
+    });
+  }
+
+  static async submit({
+    requestId,
+    residentId,
+    communityId,
+    expectedVersion,
+  }: Omit<TransitionRequestInput, "actorId" | "actorRole" | "to"> & {
+    residentId: string;
+  }) {
+    const request = await prisma.moveRequest.findFirst({
+      where: { id: requestId, residentId, communityId },
+      include: {
+        assessments: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    });
+
+    if (!request) throw new Error("REQUEST_NOT_FOUND");
+
+    const latestAssessment = request.assessments[0];
+    if (
+      request.status !== "READY_TO_SUBMIT" ||
+      !latestAssessment ||
+      !["PASS", "WARNING"].includes(latestAssessment.result)
+    ) {
+      throw new Error("REQUEST_NOT_SUBMITTABLE");
+    }
+
+    return this.transition({
+      requestId,
+      actorId: residentId,
+      actorRole: "RESIDENT",
+      communityId,
+      to: "SUBMITTED",
+      expectedVersion,
+    });
+  }
+
+  static async cancel({
+    requestId,
+    residentId,
+    communityId,
+    expectedVersion,
+  }: Omit<TransitionRequestInput, "actorId" | "actorRole" | "to"> & {
+    residentId: string;
+  }) {
+    return this.transition({
+      requestId,
+      actorId: residentId,
+      actorRole: "RESIDENT",
+      communityId,
+      to: "CANCELLED",
+      expectedVersion,
     });
   }
   static async updateDraft({
@@ -246,7 +302,8 @@ export class RequestService {
 
     if (
       moveRequest.status !== "DRAFT" &&
-      moveRequest.status !== "COLLECTING_INFORMATION"
+      moveRequest.status !== "COLLECTING_INFORMATION" &&
+      moveRequest.status !== "INFO_REQUESTED"
     ) {
       throw new Error("REQUEST_NOT_EDITABLE");
     }
@@ -283,16 +340,19 @@ export class RequestService {
       adminApprovalRequired: boolean;
     };
 
+    const existingData = moveRequest.requestData as UpdateDraftInput["requestData"];
+    const mergedRequestData = { ...existingData, ...requestData };
+
     const assessment = evaluatePolicy({
       type: moveRequest.type,
-      requestData,
+      requestData: mergedRequestData,
       policy,
     });
 
     const nextStatus =
-      assessment.result === "INCOMPLETE"
-        ? "COLLECTING_INFORMATION"
-        : "READY_TO_SUBMIT";
+      assessment.result === "PASS" || assessment.result === "WARNING"
+        ? "READY_TO_SUBMIT"
+        : "COLLECTING_INFORMATION";
 
     const updated = await tx.moveRequest.updateMany({
       where: {
@@ -300,7 +360,7 @@ export class RequestService {
         version: expectedVersion,
       },
       data: {
-        requestData,
+        requestData: mergedRequestData,
         status: nextStatus,
         version: {
           increment: 1,

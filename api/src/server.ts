@@ -5,6 +5,7 @@ import jwt from "@fastify/jwt";
 import { authRoutes } from "./routes/auth.js";
 import { demoRoutes } from "./routes/demo.js";
 import { residentRoutes } from "./routes/resident.js";
+import { adminRoutes } from "./routes/admin.js";
 
 const app = Fastify({
   logger: true,
@@ -33,6 +34,10 @@ await app.register(authRoutes, {
 
 await app.register(residentRoutes, {
   prefix: "/resident",
+});
+
+await app.register(adminRoutes, {
+  prefix: "/admin",
 });
 
 await app.register(demoRoutes, {
