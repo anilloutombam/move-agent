@@ -5,6 +5,7 @@ import { isDomainError } from "../domain/errors.js";
 const responses = {
   ACTIVE_POLICY_NOT_FOUND: [409, "No active community policy"],
   ADMIN_NOT_FOUND: [403, "Admin access required"],
+  CONVERSATION_NOT_FOUND: [404, "Conversation not found"],
   FORBIDDEN_REQUEST_TRANSITION: [409, "Request action is not allowed in its current state"],
   INVALID_POLICY_CONFIG: [500, "Community policy is invalid"],
   INVALID_REQUEST_TRANSITION: [409, "Request action is not allowed in its current state"],
