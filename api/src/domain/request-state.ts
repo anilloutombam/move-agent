@@ -1,7 +1,7 @@
 import type { RequestStatus } from "../generated/prisma/client.js";
 
 const transitions: Record<RequestStatus, readonly RequestStatus[]> = {
-  DRAFT: ["COLLECTING_INFORMATION", "CANCELLED"],
+  DRAFT: ["COLLECTING_INFORMATION", "READY_TO_SUBMIT", "CANCELLED"],
 
   COLLECTING_INFORMATION: [
     "READY_TO_SUBMIT",
@@ -23,13 +23,33 @@ const transitions: Record<RequestStatus, readonly RequestStatus[]> = {
   ],
 
   INFO_REQUESTED: [
-    "UNDER_REVIEW",
+    "COLLECTING_INFORMATION",
+    "READY_TO_SUBMIT",
     "CANCELLED",
   ],
 
   APPROVED: [],
   REJECTED: [],
   CANCELLED: [],
+};
+
+type WorkflowActor = "RESIDENT" | "ADMIN" | "SYSTEM";
+
+const actorTransitions: Record<WorkflowActor, readonly string[]> = {
+  RESIDENT: [
+    "DRAFT:CANCELLED",
+    "COLLECTING_INFORMATION:CANCELLED",
+    "READY_TO_SUBMIT:SUBMITTED",
+    "READY_TO_SUBMIT:CANCELLED",
+    "INFO_REQUESTED:CANCELLED",
+  ],
+  ADMIN: [
+    "SUBMITTED:UNDER_REVIEW",
+    "UNDER_REVIEW:INFO_REQUESTED",
+    "UNDER_REVIEW:APPROVED",
+    "UNDER_REVIEW:REJECTED",
+  ],
+  SYSTEM: [],
 };
 
 export function canTransition(
@@ -47,5 +67,17 @@ export function assertTransition(
     throw new Error(
       `INVALID_REQUEST_TRANSITION:${from}:${to}`,
     );
+  }
+}
+
+export function assertActorTransition(
+  actor: WorkflowActor,
+  from: RequestStatus,
+  to: RequestStatus,
+): void {
+  assertTransition(from, to);
+
+  if (!actorTransitions[actor].includes(`${from}:${to}`)) {
+    throw new Error(`FORBIDDEN_REQUEST_TRANSITION:${actor}:${from}:${to}`);
   }
 }
