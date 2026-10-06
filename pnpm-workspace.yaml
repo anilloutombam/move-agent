@@ -1,0 +1,9 @@
+packages:
+  - "web"
+  - "api"
+allowBuilds:
+  '@prisma/engines': set this to true or false
+  esbuild: false
+  prisma: set this to true or false
+  unrs-resolver: false
+  workerd: false

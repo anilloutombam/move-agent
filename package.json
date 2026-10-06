@@ -1,0 +1,9 @@
+{
+  "name": "move-in-move-out-agent",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api dev",
+    "build": "pnpm -r build"
+  }
+}

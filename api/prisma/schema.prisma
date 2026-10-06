@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  RESIDENT
+  ADMIN
+}
+
+enum MoveType {
+  MOVE_IN
+  MOVE_OUT
+}
+
+enum RequestStatus {
+  DRAFT
+  COLLECTING_INFORMATION
+  READY_TO_SUBMIT
+  SUBMITTED
+  UNDER_REVIEW
+  INFO_REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PolicyResult {
+  INCOMPLETE
+  PASS
+  WARNING
+  FAIL
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model Community {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  units    Unit[]
+  users    User[]
+  policies CommunityPolicy[]
+  requests MoveRequest[]
+}
+
+model CommunityPolicy {
+  id          String   @id @default(cuid())
+  communityId String
+  version     Int
+  config      Json
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  community Community @relation(fields: [communityId], references: [id])
+
+  @@unique([communityId, version])
+  @@index([communityId, active])
+}
+
+model Unit {
+  id          String   @id @default(cuid())
+  communityId String
+  number      String
+  tower       String?
+  createdAt   DateTime @default(now())
+
+  community Community @relation(fields: [communityId], references: [id])
+  users     User[]
+  requests  MoveRequest[]
+
+  @@unique([communityId, number])
+}
+
+model User {
+  id          String   @id @default(cuid())
+  communityId String
+  unitId      String?
+  name        String
+  email       String   @unique
+  role        UserRole
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  community    Community     @relation(fields: [communityId], references: [id])
+  unit         Unit?         @relation(fields: [unitId], references: [id])
+  conversations Conversation[]
+  requests     MoveRequest[] @relation("ResidentRequests")
+  decisions    AdminDecision[]
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id])
+  messages Message[]
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
+}
+
+model MoveRequest {
+  id             String        @id @default(cuid())
+  communityId    String
+  unitId         String
+  residentId     String
+  type           MoveType
+  status         RequestStatus @default(DRAFT)
+
+  requestData    Json
+  recommendation String?
+
+  configVersion  Int
+  version        Int           @default(1)
+  idempotencyKey String?       @unique
+
+  submittedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  community        Community         @relation(fields: [communityId], references: [id])
+  unit             Unit              @relation(fields: [unitId], references: [id])
+  resident         User              @relation("ResidentRequests", fields: [residentId], references: [id])
+  events           RequestEvent[]
+  assessments      PolicyAssessment[]
+  adminDecisions   AdminDecision[]
+
+  @@index([communityId, status])
+  @@index([residentId, createdAt])
+}
+
+model PolicyAssessment {
+  id        String       @id @default(cuid())
+  requestId String
+  result    PolicyResult
+  checks    Json
+  summary   String?
+  createdAt DateTime     @default(now())
+
+  request MoveRequest @relation(fields: [requestId], references: [id])
+
+  @@index([requestId, createdAt])
+}
+
+model RequestEvent {
+  id        String   @id @default(cuid())
+  requestId String
+  type      String
+  actorId   String?
+  data      Json?
+  createdAt DateTime @default(now())
+
+  request MoveRequest @relation(fields: [requestId], references: [id])
+
+  @@index([requestId, createdAt])
+}
+
+model AdminDecision {
+  id        String   @id @default(cuid())
+  requestId String
+  adminId   String
+  decision  String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  request MoveRequest @relation(fields: [requestId], references: [id])
+  admin   User        @relation(fields: [adminId], references: [id])
+
+  @@index([requestId, createdAt])
+}
