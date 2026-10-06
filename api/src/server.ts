@@ -6,6 +6,7 @@ import { authRoutes } from "./routes/auth.js";
 import { demoRoutes } from "./routes/demo.js";
 import { residentRoutes } from "./routes/resident.js";
 import { adminRoutes } from "./routes/admin.js";
+import { conversationRoutes } from "./routes/conversations.js";
 
 const app = Fastify({
   logger: true,
@@ -38,6 +39,10 @@ await app.register(residentRoutes, {
 
 await app.register(adminRoutes, {
   prefix: "/admin",
+});
+
+await app.register(conversationRoutes, {
+  prefix: "/conversations",
 });
 
 await app.register(demoRoutes, {
