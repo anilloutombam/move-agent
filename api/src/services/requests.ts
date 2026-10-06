@@ -1,10 +1,10 @@
 import { prisma } from "../db/prisma.js";
-import { assertActorTransition } from "../domain/request-state.js";
-import type {
-  MoveType,
-  RequestStatus,
-} from "../generated/prisma/client.js";
+import { DomainError } from "../domain/errors.js";
+import type { MoveRequestData } from "../domain/request-data.js";
+import type { MoveType } from "../generated/prisma/client.js";
 import { evaluatePolicy } from "../policy/engine.js";
+import { parseCommunityPolicy } from "../policy/config.js";
+import { RequestWorkflowService } from "./request-workflow.js";
 
 type CreateRequestInput = {
   residentId: string;
@@ -12,26 +12,12 @@ type CreateRequestInput = {
   type: MoveType;
 };
 
-type TransitionRequestInput = {
-  requestId: string;
-  actorId: string;
-  actorRole: "RESIDENT" | "ADMIN";
-  communityId: string;
-  to: RequestStatus;
-  expectedVersion: number;
-};
-
 type UpdateDraftInput = {
   requestId: string;
   residentId: string;
   communityId: string;
   expectedVersion: number;
-  requestData: {
-    moveDate?: string;
-    preferredTime?: string;
-    vehicleNumber?: string;
-    documents?: string[];
-  };
+  requestData: MoveRequestData;
 };
 
 export class RequestService {
@@ -49,7 +35,7 @@ export class RequestService {
     });
 
     if (!resident?.unitId) {
-      throw new Error("RESIDENT_UNIT_NOT_FOUND");
+      throw new DomainError("RESIDENT_UNIT_NOT_FOUND");
     }
 
     const policy = await prisma.communityPolicy.findFirst({
@@ -63,7 +49,7 @@ export class RequestService {
     });
 
     if (!policy) {
-      throw new Error("ACTIVE_POLICY_NOT_FOUND");
+      throw new DomainError("ACTIVE_POLICY_NOT_FOUND");
     }
 
     return prisma.$transaction(async (tx) => {
@@ -156,75 +142,10 @@ export class RequestService {
     });
 
     if (!moveRequest) {
-      throw new Error("REQUEST_NOT_FOUND");
+      throw new DomainError("REQUEST_NOT_FOUND");
     }
 
     return moveRequest;
-  }
-
-  static async transition({
-    requestId,
-    actorId,
-    actorRole,
-    communityId,
-    to,
-    expectedVersion,
-  }: TransitionRequestInput) {
-    return prisma.$transaction(async (tx) => {
-      const request = await tx.moveRequest.findFirst({
-        where: {
-          id: requestId,
-          communityId,
-          ...(actorRole === "RESIDENT" ? { residentId: actorId } : {}),
-        },
-      });
-
-      if (!request) {
-        throw new Error("REQUEST_NOT_FOUND");
-      }
-
-      assertActorTransition(actorRole, request.status, to);
-
-      const result = await tx.moveRequest.updateMany({
-        where: {
-          id: request.id,
-          version: expectedVersion,
-        },
-        data: {
-          status: to,
-          version: {
-            increment: 1,
-          },
-          ...(to === "SUBMITTED"
-            ? {
-                submittedAt: new Date(),
-              }
-            : {}),
-        },
-      });
-
-      if (result.count !== 1) {
-        throw new Error("REQUEST_VERSION_CONFLICT");
-      }
-
-      await tx.requestEvent.create({
-        data: {
-          requestId: request.id,
-          type: `STATUS_CHANGED_TO_${to}`,
-          actorId,
-          data: {
-            from: request.status,
-            to,
-          },
-        },
-      });
-
-      return tx.moveRequest.findUniqueOrThrow({
-        where: {
-          id: request.id,
-        },
-      });
-    });
   }
 
   static async submit({
@@ -232,8 +153,11 @@ export class RequestService {
     residentId,
     communityId,
     expectedVersion,
-  }: Omit<TransitionRequestInput, "actorId" | "actorRole" | "to"> & {
+  }: {
+    requestId: string;
     residentId: string;
+    communityId: string;
+    expectedVersion: number;
   }) {
     const request = await prisma.moveRequest.findFirst({
       where: { id: requestId, residentId, communityId },
@@ -242,7 +166,7 @@ export class RequestService {
       },
     });
 
-    if (!request) throw new Error("REQUEST_NOT_FOUND");
+    if (!request) throw new DomainError("REQUEST_NOT_FOUND");
 
     const latestAssessment = request.assessments[0];
     if (
@@ -250,10 +174,45 @@ export class RequestService {
       !latestAssessment ||
       !["PASS", "WARNING"].includes(latestAssessment.result)
     ) {
-      throw new Error("REQUEST_NOT_SUBMITTABLE");
+      throw new DomainError("REQUEST_NOT_SUBMITTABLE");
     }
 
-    return this.transition({
+    const policyRecord = await prisma.communityPolicy.findUnique({
+      where: {
+        communityId_version: { communityId, version: request.configVersion },
+      },
+    });
+    if (!policyRecord) throw new DomainError("POLICY_NOT_FOUND");
+    const policy = parseCommunityPolicy(policyRecord.config);
+    const requestData = request.requestData as MoveRequestData;
+
+    if (requestData.moveDate && requestData.preferredTime) {
+      const occupied = await prisma.moveRequest.count({
+        where: {
+          communityId,
+          id: { not: requestId },
+          status: { in: ["SUBMITTED", "UNDER_REVIEW", "APPROVED"] },
+          requestData: {
+            path: ["moveDate"],
+            equals: requestData.moveDate,
+          },
+          AND: {
+            requestData: {
+              path: ["preferredTime"],
+              equals: requestData.preferredTime,
+            },
+          },
+        },
+      });
+      if (occupied >= policy.maxMovesPerSlot) {
+        throw new DomainError("MOVE_SLOT_FULL", {
+          moveDate: requestData.moveDate,
+          preferredTime: requestData.preferredTime,
+        });
+      }
+    }
+
+    return RequestWorkflowService.transition({
       requestId,
       actorId: residentId,
       actorRole: "RESIDENT",
@@ -268,10 +227,13 @@ export class RequestService {
     residentId,
     communityId,
     expectedVersion,
-  }: Omit<TransitionRequestInput, "actorId" | "actorRole" | "to"> & {
+  }: {
+    requestId: string;
     residentId: string;
+    communityId: string;
+    expectedVersion: number;
   }) {
-    return this.transition({
+    return RequestWorkflowService.transition({
       requestId,
       actorId: residentId,
       actorRole: "RESIDENT",
@@ -280,24 +242,25 @@ export class RequestService {
       expectedVersion,
     });
   }
+
   static async updateDraft({
-  requestId,
-  residentId,
-  communityId,
-  expectedVersion,
-  requestData,
-}: UpdateDraftInput) {
-  return prisma.$transaction(async (tx) => {
-    const moveRequest = await tx.moveRequest.findFirst({
-      where: {
-        id: requestId,
-        residentId,
-        communityId,
-      },
-    });
+    requestId,
+    residentId,
+    communityId,
+    expectedVersion,
+    requestData,
+  }: UpdateDraftInput) {
+    return prisma.$transaction(async (tx) => {
+      const moveRequest = await tx.moveRequest.findFirst({
+        where: {
+          id: requestId,
+          residentId,
+          communityId,
+        },
+      });
 
     if (!moveRequest) {
-      throw new Error("REQUEST_NOT_FOUND");
+      throw new DomainError("REQUEST_NOT_FOUND");
     }
 
     if (
@@ -305,11 +268,11 @@ export class RequestService {
       moveRequest.status !== "COLLECTING_INFORMATION" &&
       moveRequest.status !== "INFO_REQUESTED"
     ) {
-      throw new Error("REQUEST_NOT_EDITABLE");
+      throw new DomainError("REQUEST_NOT_EDITABLE");
     }
 
     if (moveRequest.version !== expectedVersion) {
-      throw new Error("REQUEST_VERSION_CONFLICT");
+      throw new DomainError("REQUEST_VERSION_CONFLICT");
     }
 
     const policyRecord = await tx.communityPolicy.findUnique({
@@ -322,23 +285,10 @@ export class RequestService {
     });
 
     if (!policyRecord) {
-      throw new Error("POLICY_NOT_FOUND");
+      throw new DomainError("POLICY_NOT_FOUND");
     }
 
-    const policy = policyRecord.config as {
-      noticeHours: number;
-      movingHours: {
-        start: string;
-        end: string;
-      };
-      elevatorBookingRequired: boolean;
-      requiredDocuments: {
-        MOVE_IN: string[];
-        MOVE_OUT: string[];
-      };
-      maxMovesPerSlot: number;
-      adminApprovalRequired: boolean;
-    };
+    const policy = parseCommunityPolicy(policyRecord.config);
 
     const existingData = moveRequest.requestData as UpdateDraftInput["requestData"];
     const mergedRequestData = { ...existingData, ...requestData };
@@ -369,7 +319,7 @@ export class RequestService {
     });
 
     if (updated.count !== 1) {
-      throw new Error("REQUEST_VERSION_CONFLICT");
+      throw new DomainError("REQUEST_VERSION_CONFLICT");
     }
 
     await tx.policyAssessment.create({
@@ -398,19 +348,19 @@ export class RequestService {
       },
     });
 
-    return tx.moveRequest.findUniqueOrThrow({
-      where: {
-        id: moveRequest.id,
-      },
-      include: {
-        assessments: {
-          orderBy: {
-            createdAt: "desc",
-          },
-          take: 1,
+      return tx.moveRequest.findUniqueOrThrow({
+        where: {
+          id: moveRequest.id,
         },
-      },
+        include: {
+          assessments: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 1,
+          },
+        },
+      });
     });
-  });
-}
+  }
 }

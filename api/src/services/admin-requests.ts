@@ -1,6 +1,7 @@
 import { prisma } from "../db/prisma.js";
-import { assertActorTransition } from "../domain/request-state.js";
+import { DomainError } from "../domain/errors.js";
 import type { RequestStatus } from "../generated/prisma/client.js";
+import { RequestWorkflowService } from "./request-workflow.js";
 
 type AdminAction = "START_REVIEW" | "REQUEST_INFO" | "APPROVE" | "REJECT";
 
@@ -15,19 +16,30 @@ export class AdminRequestService {
   static async list({
     communityId,
     status,
+    page,
+    limit,
   }: {
     communityId: string;
     status?: RequestStatus;
+    page: number;
+    limit: number;
   }) {
-    return prisma.moveRequest.findMany({
-      where: { communityId, ...(status ? { status } : {}) },
-      orderBy: { createdAt: "desc" },
-      include: {
-        resident: { select: { id: true, name: true, email: true } },
-        unit: { select: { number: true, tower: true } },
-        assessments: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
-    });
+    const where = { communityId, ...(status ? { status } : {}) };
+    const [items, total] = await prisma.$transaction([
+      prisma.moveRequest.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          resident: { select: { id: true, name: true, email: true } },
+          unit: { select: { number: true, tower: true } },
+          assessments: { orderBy: { createdAt: "desc" }, take: 1 },
+        },
+      }),
+      prisma.moveRequest.count({ where }),
+    ]);
+    return { items, page, limit, total };
   }
 
   static async get({ requestId, communityId }: { requestId: string; communityId: string }) {
@@ -42,7 +54,7 @@ export class AdminRequestService {
       },
     });
 
-    if (!request) throw new Error("REQUEST_NOT_FOUND");
+    if (!request) throw new DomainError("REQUEST_NOT_FOUND");
     return request;
   }
 
@@ -61,42 +73,16 @@ export class AdminRequestService {
     action: AdminAction;
     reason?: string;
   }) {
-    return prisma.$transaction(async (tx) => {
-      const admin = await tx.user.findFirst({
-        where: { id: adminId, communityId, role: "ADMIN" },
-      });
-      if (!admin) throw new Error("ADMIN_NOT_FOUND");
-
-      const request = await tx.moveRequest.findFirst({
-        where: { id: requestId, communityId },
-      });
-      if (!request) throw new Error("REQUEST_NOT_FOUND");
-
-      const to = actionStatus[action];
-      assertActorTransition("ADMIN", request.status, to);
-
-      const updated = await tx.moveRequest.updateMany({
-        where: { id: request.id, version: expectedVersion },
-        data: { status: to, version: { increment: 1 } },
-      });
-      if (updated.count !== 1) throw new Error("REQUEST_VERSION_CONFLICT");
-
-      if (action !== "START_REVIEW") {
-        await tx.adminDecision.create({
-          data: { requestId: request.id, adminId, decision: action, reason },
-        });
-      }
-
-      await tx.requestEvent.create({
-        data: {
-          requestId: request.id,
-          type: `ADMIN_${action}`,
-          actorId: adminId,
-          data: { from: request.status, to, reason },
-        },
-      });
-
-      return tx.moveRequest.findUniqueOrThrow({ where: { id: request.id } });
+    return RequestWorkflowService.transition({
+      requestId,
+      communityId,
+      actorId: adminId,
+      actorRole: "ADMIN",
+      expectedVersion,
+      to: actionStatus[action],
+      eventType: `ADMIN_${action}`,
+      reason,
+      ...(action === "START_REVIEW" ? {} : { decision: action }),
     });
   }
 }

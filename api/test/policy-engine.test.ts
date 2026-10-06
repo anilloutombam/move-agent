@@ -19,6 +19,7 @@ test("complete compliant request passes", () => {
       moveDate: "2026-10-10",
       preferredTime: "10:00",
       documents: ["IDENTITY_PROOF"],
+      elevatorBookingRequested: true,
     },
     policy,
     now: new Date("2026-10-06T00:00:00Z"),
@@ -33,6 +34,7 @@ test("insufficient notice fails", () => {
       moveDate: "2026-10-07",
       preferredTime: "10:00",
       documents: ["IDENTITY_PROOF"],
+      elevatorBookingRequested: true,
     },
     policy,
     now: new Date("2026-10-06T00:00:00Z"),
@@ -47,9 +49,28 @@ test("invalid date fails rather than passing notice check", () => {
       moveDate: "not-a-date",
       preferredTime: "10:00",
       documents: ["IDENTITY_PROOF"],
+      elevatorBookingRequested: true,
     },
     policy,
     now: new Date("2026-10-06T00:00:00Z"),
   });
   assert.equal(assessment.result, "FAIL");
+});
+
+test("required elevator booking remains incomplete until requested", () => {
+  const assessment = evaluatePolicy({
+    type: "MOVE_IN",
+    requestData: {
+      moveDate: "2026-10-10",
+      preferredTime: "10:00",
+      documents: ["IDENTITY_PROOF"],
+    },
+    policy,
+    now: new Date("2026-10-06T00:00:00Z"),
+  });
+  assert.equal(assessment.result, "INCOMPLETE");
+  assert.equal(
+    assessment.checks.find((check) => check.name === "ELEVATOR_BOOKING")?.result,
+    "INCOMPLETE",
+  );
 });

@@ -1,30 +1,11 @@
+import type { MoveRequestData } from "../domain/request-data.js";
+import type { CommunityPolicyConfig } from "./config.js";
+
 export type PolicyResult =
   | "INCOMPLETE"
   | "PASS"
   | "WARNING"
   | "FAIL";
-
-type MoveRequestData = {
-  moveDate?: string;
-  preferredTime?: string;
-  vehicleNumber?: string;
-  documents?: string[];
-};
-
-type CommunityPolicyConfig = {
-  noticeHours: number;
-  movingHours: {
-    start: string;
-    end: string;
-  };
-  elevatorBookingRequired: boolean;
-  requiredDocuments: {
-    MOVE_IN: string[];
-    MOVE_OUT: string[];
-  };
-  maxMovesPerSlot: number;
-  adminApprovalRequired: boolean;
-};
 
 type PolicyCheck = {
   name: string;
@@ -142,6 +123,16 @@ export function evaluatePolicy({
       name: "REQUIRED_DOCUMENTS",
       result: "PASS",
       message: "Required documents provided",
+    });
+  }
+
+  if (policy.elevatorBookingRequired) {
+    checks.push({
+      name: "ELEVATOR_BOOKING",
+      result: requestData.elevatorBookingRequested ? "PASS" : "INCOMPLETE",
+      message: requestData.elevatorBookingRequested
+        ? "Elevator booking requested"
+        : "Elevator booking is required",
     });
   }
 

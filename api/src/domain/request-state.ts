@@ -1,4 +1,5 @@
 import type { RequestStatus } from "../generated/prisma/client.js";
+import { DomainError } from "./errors.js";
 
 const transitions: Record<RequestStatus, readonly RequestStatus[]> = {
   DRAFT: ["COLLECTING_INFORMATION", "READY_TO_SUBMIT", "CANCELLED"],
@@ -33,7 +34,7 @@ const transitions: Record<RequestStatus, readonly RequestStatus[]> = {
   CANCELLED: [],
 };
 
-type WorkflowActor = "RESIDENT" | "ADMIN" | "SYSTEM";
+export type WorkflowActor = "RESIDENT" | "ADMIN";
 
 const actorTransitions: Record<WorkflowActor, readonly string[]> = {
   RESIDENT: [
@@ -49,7 +50,6 @@ const actorTransitions: Record<WorkflowActor, readonly string[]> = {
     "UNDER_REVIEW:APPROVED",
     "UNDER_REVIEW:REJECTED",
   ],
-  SYSTEM: [],
 };
 
 export function canTransition(
@@ -64,9 +64,7 @@ export function assertTransition(
   to: RequestStatus,
 ): void {
   if (!canTransition(from, to)) {
-    throw new Error(
-      `INVALID_REQUEST_TRANSITION:${from}:${to}`,
-    );
+    throw new DomainError("INVALID_REQUEST_TRANSITION", { from, to });
   }
 }
 
@@ -78,6 +76,6 @@ export function assertActorTransition(
   assertTransition(from, to);
 
   if (!actorTransitions[actor].includes(`${from}:${to}`)) {
-    throw new Error(`FORBIDDEN_REQUEST_TRANSITION:${actor}:${from}:${to}`);
+    throw new DomainError("FORBIDDEN_REQUEST_TRANSITION", { actor, from, to });
   }
 }
