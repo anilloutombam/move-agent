@@ -4,6 +4,10 @@ import { isDomainError } from "../domain/errors.js";
 
 const responses = {
   ACTIVE_POLICY_NOT_FOUND: [409, "No active community policy"],
+  AGENT_ACTION_CONFIRMATION_REQUIRED: [409, "Explicit confirmation is required for this action"],
+  AGENT_ITERATION_LIMIT: [502, "The agent could not complete this turn"],
+  AGENT_TOOL_INVALID: [400, "The agent produced invalid tool input"],
+  AGENT_TOOL_NOT_ALLOWED: [403, "The requested agent action is not allowed"],
   ADMIN_NOT_FOUND: [403, "Admin access required"],
   CONVERSATION_NOT_FOUND: [404, "Conversation not found"],
   FORBIDDEN_REQUEST_TRANSITION: [409, "Request action is not allowed in its current state"],
