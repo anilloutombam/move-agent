@@ -1,8 +1,9 @@
-import type { FastifyPluginAsync, FastifyReply } from "fastify";
+import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
 import { authenticate } from "../auth/authenticate.js";
 import { AdminRequestService } from "../services/admin-requests.js";
+import { sendDomainError } from "./domain-error.js";
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 const querySchema = z.object({
@@ -10,6 +11,8 @@ const querySchema = z.object({
     "DRAFT", "COLLECTING_INFORMATION", "READY_TO_SUBMIT", "SUBMITTED",
     "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "REJECTED", "CANCELLED",
   ]).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 const actionSchema = z.object({
   expectedVersion: z.number().int().positive(),
@@ -30,6 +33,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return AdminRequestService.list({
       communityId: request.user.communityId,
       status: query.data.status,
+      page: query.data.page,
+      limit: query.data.limit,
     });
   });
 
@@ -42,7 +47,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         communityId: request.user.communityId,
       });
     } catch (error) {
-      return handleAdminError(error, reply);
+      return sendDomainError(error, reply);
     }
   });
 
@@ -71,25 +76,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           reason: body.data.reason,
         });
       } catch (error) {
-        return handleAdminError(error, reply);
+        return sendDomainError(error, reply);
       }
     });
   }
 };
-
-function handleAdminError(error: unknown, reply: FastifyReply) {
-  if (!(error instanceof Error)) throw error;
-  if (error.message === "REQUEST_NOT_FOUND") {
-    return reply.code(404).send({ error: "Request not found" });
-  }
-  if (error.message === "ADMIN_NOT_FOUND") {
-    return reply.code(403).send({ error: "Admin access required" });
-  }
-  if (error.message === "REQUEST_VERSION_CONFLICT") {
-    return reply.code(409).send({ error: "Request was modified. Refresh and try again." });
-  }
-  if (error.message.startsWith("INVALID_REQUEST_TRANSITION") || error.message.startsWith("FORBIDDEN_REQUEST_TRANSITION")) {
-    return reply.code(409).send({ error: "Request action is not allowed in its current state" });
-  }
-  throw error;
-}
