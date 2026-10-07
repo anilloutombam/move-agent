@@ -8,8 +8,8 @@ import { sendDomainError } from "./domain-error.js";
 const paramsSchema = z.object({ id: z.string().min(1) });
 const querySchema = z.object({
   status: z.enum([
-    "DRAFT", "COLLECTING_INFORMATION", "READY_TO_SUBMIT", "SUBMITTED",
-    "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "REJECTED", "CANCELLED",
+    "SUBMITTED", "UNDER_REVIEW", "INFO_REQUESTED", "APPROVED", "REJECTED",
+    "CANCELLED",
   ]).optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),

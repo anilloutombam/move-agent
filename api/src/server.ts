@@ -45,15 +45,17 @@ await app.register(conversationRoutes, {
   prefix: "/conversations",
 });
 
-await app.register(demoRoutes, {
-  prefix: "/demo",
-});
+if (process.env.ENABLE_DEMO_ROUTES === "true") {
+  await app.register(demoRoutes, {
+    prefix: "/demo",
+  });
+}
 
 
 const start = async () => {
   try {
     await app.listen({
-      port: 4000,
+      port: Number(process.env.PORT ?? 4000),
       host: "0.0.0.0",
     });
   } catch (error) {

@@ -81,3 +81,25 @@ test("invalid Groq tool arguments are rejected", async () => {
     (error) => error instanceof LlmError && error.code === "LLM_INVALID_RESPONSE",
   );
 });
+
+test("temporary Groq failures are retried once", async () => {
+  let attempts = 0;
+  const fakeFetch: typeof fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response(JSON.stringify({ error: "temporarily unavailable" }), {
+        status: 503,
+      });
+    }
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "Recovered." } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const response = await new GroqProvider(config, fakeFetch).generate({
+    messages: [{ role: "user", content: "Try again" }],
+  });
+
+  assert.equal(attempts, 2);
+  assert.equal(response.text, "Recovered.");
+});

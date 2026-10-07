@@ -1,4 +1,7 @@
-import type { MoveRequestData } from "../domain/request-data.js";
+import {
+  normalizeDocumentType,
+  type MoveRequestData,
+} from "../domain/request-data.js";
 import type { CommunityPolicyConfig } from "./config.js";
 
 export type PolicyResult =
@@ -106,10 +109,10 @@ export function evaluatePolicy({
     policy.requiredDocuments[type] ?? [];
 
   const providedDocuments =
-    requestData.documents ?? [];
+    requestData.documents?.map(normalizeDocumentType) ?? [];
 
   const missingDocuments = requiredDocuments.filter(
-    (document) => !providedDocuments.includes(document),
+    (document) => !providedDocuments.includes(normalizeDocumentType(document)),
   );
 
   if (missingDocuments.length > 0) {

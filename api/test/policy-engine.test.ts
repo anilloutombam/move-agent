@@ -27,6 +27,22 @@ test("complete compliant request passes", () => {
   assert.equal(assessment.result, "PASS");
 });
 
+test("a driving licence satisfies the identity proof requirement", () => {
+  const assessment = evaluatePolicy({
+    type: "MOVE_IN",
+    requestData: {
+      moveDate: "2026-10-10",
+      preferredTime: "10:00",
+      documents: ["driving licence"],
+      elevatorBookingRequested: true,
+    },
+    policy,
+    now: new Date("2026-10-06T00:00:00Z"),
+  });
+
+  assert.equal(assessment.result, "PASS");
+});
+
 test("insufficient notice fails", () => {
   const assessment = evaluatePolicy({
     type: "MOVE_IN",

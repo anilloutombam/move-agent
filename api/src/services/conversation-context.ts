@@ -1,7 +1,39 @@
 import { prisma } from "../db/prisma.js";
 import { DomainError } from "../domain/errors.js";
-import type { UserRole } from "../generated/prisma/client.js";
+import type {
+  MessageRole,
+  Prisma,
+  UserRole,
+} from "../generated/prisma/client.js";
 import { parseCommunityPolicy } from "../policy/config.js";
+
+type ContextMessage = {
+  role: MessageRole;
+  content: string;
+  metadata: Prisma.JsonValue | null;
+};
+
+function hasToolCalls(metadata: Prisma.JsonValue | null): boolean {
+  return (
+    metadata !== null &&
+    typeof metadata === "object" &&
+    !Array.isArray(metadata) &&
+    Array.isArray(metadata.toolCalls)
+  );
+}
+
+export function compactConversationMessages(
+  messages: ContextMessage[],
+  limit = 12,
+): ContextMessage[] {
+  return messages
+    .filter((message) => {
+      if (!message.content.trim()) return false;
+      if (message.role === "USER") return true;
+      return message.role === "ASSISTANT" && !hasToolCalls(message.metadata);
+    })
+    .slice(-Math.max(limit, 1));
+}
 
 export class ConversationContextService {
   static async load({
@@ -9,7 +41,7 @@ export class ConversationContextService {
     userId,
     communityId,
     role,
-    messageLimit = 30,
+    messageLimit = 12,
   }: {
     conversationId: string;
     userId: string;
@@ -35,7 +67,7 @@ export class ConversationContextService {
         },
         messages: {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          take: Math.min(Math.max(messageLimit, 1), 100),
+          take: Math.min(Math.max(messageLimit * 4, 20), 100),
         },
       },
     });
@@ -77,7 +109,10 @@ export class ConversationContextService {
         version: policyRecord.version,
         config: parseCommunityPolicy(policyRecord.config),
       },
-      messages: conversation.messages.reverse(),
+      messages: compactConversationMessages(
+        conversation.messages.reverse(),
+        messageLimit,
+      ),
     };
   }
 }

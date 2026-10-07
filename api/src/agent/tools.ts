@@ -74,7 +74,7 @@ const specs: Record<string, ToolSpec> = {
     roles: ["RESIDENT"],
     definition: {
       name: "update_request_draft",
-      description: "Update provided fields in the request draft. Use only information explicitly supplied by the resident.",
+      description: "Update provided fields in the request draft. Use only information explicitly supplied by the resident. Record a declared driving licence, driver's license, passport, Aadhaar, national ID, or identity proof as IDENTITY_PROOF.",
       inputSchema: {
         type: "object",
         properties: {
@@ -85,7 +85,14 @@ const specs: Record<string, ToolSpec> = {
               moveDate: { type: "string", format: "date" },
               preferredTime: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$" },
               vehicleNumber: { type: "string" },
-              documents: { type: "array", items: { type: "string" } },
+              documents: {
+                type: "array",
+                description: "Document types supplied by the resident, stored using canonical internal values.",
+                items: {
+                  type: "string",
+                  enum: ["IDENTITY_PROOF", "MOVE_OUT_CLEARANCE"],
+                },
+              },
               elevatorBookingRequested: { type: "boolean" },
             },
           },

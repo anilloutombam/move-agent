@@ -96,13 +96,29 @@ export class GroqProvider implements LlmProvider {
         : {}),
     };
 
-    const raw = await postJson(
-      this.fetchImplementation,
-      "https://api.groq.com/openai/v1/chat/completions",
-      { authorization: `Bearer ${this.config.apiKey}` },
-      body,
-      this.config.timeoutMs,
-    );
+    const requestProvider = () =>
+      postJson(
+        this.fetchImplementation,
+        "https://api.groq.com/openai/v1/chat/completions",
+        { authorization: `Bearer ${this.config.apiKey}` },
+        body,
+        this.config.timeoutMs,
+      );
+
+    let raw: unknown;
+    try {
+      raw = await requestProvider();
+    } catch (error) {
+      const retryable =
+        error instanceof LlmError &&
+        (error.code === "LLM_TIMEOUT" ||
+          error.status === 429 ||
+          (error.status !== undefined && error.status >= 500));
+      if (!retryable) throw error;
+      const retryDelayMs = error.status === 429 ? 1500 : 300;
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      raw = await requestProvider();
+    }
     const parsed = responseSchema.safeParse(raw);
     if (!parsed.success) {
       throw new LlmError("LLM_INVALID_RESPONSE", "Groq returned an invalid response");
