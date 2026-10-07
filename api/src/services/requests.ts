@@ -1,6 +1,9 @@
 import { prisma } from "../db/prisma.js";
 import { DomainError } from "../domain/errors.js";
-import type { MoveRequestData } from "../domain/request-data.js";
+import {
+  moveRequestDataSchema,
+  type MoveRequestData,
+} from "../domain/request-data.js";
 import type { MoveType } from "../generated/prisma/client.js";
 import { evaluatePolicy } from "../policy/engine.js";
 import { parseCommunityPolicy } from "../policy/config.js";
@@ -291,7 +294,10 @@ export class RequestService {
     const policy = parseCommunityPolicy(policyRecord.config);
 
     const existingData = moveRequest.requestData as UpdateDraftInput["requestData"];
-    const mergedRequestData = { ...existingData, ...requestData };
+    const mergedRequestData = moveRequestDataSchema.parse({
+      ...existingData,
+      ...requestData,
+    });
 
     const assessment = evaluatePolicy({
       type: moveRequest.type,

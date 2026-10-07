@@ -80,8 +80,8 @@ async function main() {
     data: {
       communityId: skyline.id,
       unitId: skylineUnit.id,
-      name: "Anil Kumar Singha",
-      email: "anil@demo.local",
+      name: "Resident",
+      email: "demo@demo.com",
       role: UserRole.RESIDENT,
     },
   });
@@ -89,8 +89,8 @@ async function main() {
   await prisma.user.create({
     data: {
       communityId: skyline.id,
-      name: "Priya Mehta",
-      email: "priya@demo.local",
+      name: "Admin",
+      email: "admin@admin.com",
       role: UserRole.ADMIN,
     },
   });
@@ -158,8 +158,8 @@ async function main() {
   console.log("Seed completed successfully.");
   console.log("");
   console.log("Demo users:");
-  console.log("Resident: anil@demo.local");
-  console.log("Admin:    priya@demo.local");
+  console.log("Resident: demo@demo.com");
+  console.log("Admin:    admin@admin.com");
   console.log("Resident: arjun@demo.local");
   console.log("Admin:    neha@demo.local");
 }

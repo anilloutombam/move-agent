@@ -86,8 +86,11 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     } catch (error) {
       if (error instanceof LlmError) {
         request.log.error({ code: error.code, status: error.status }, "LLM request failed");
-        return reply.code(502).send({
-          error: "The assistant is temporarily unavailable",
+        const isRateLimited = error.status === 429;
+        return reply.code(isRateLimited ? 429 : 502).send({
+          error: isRateLimited
+            ? "The assistant is busy. Please wait a minute and try again."
+            : "The assistant is temporarily unavailable. Please try again.",
           code: error.code,
         });
       }

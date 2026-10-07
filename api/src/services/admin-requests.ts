@@ -1,6 +1,6 @@
 import { prisma } from "../db/prisma.js";
 import { DomainError } from "../domain/errors.js";
-import type { RequestStatus } from "../generated/prisma/client.js";
+import type { Prisma, RequestStatus } from "../generated/prisma/client.js";
 import { RequestWorkflowService } from "./request-workflow.js";
 
 type AdminAction = "START_REVIEW" | "REQUEST_INFO" | "APPROVE" | "REJECT";
@@ -11,6 +11,15 @@ const actionStatus: Record<AdminAction, RequestStatus> = {
   APPROVE: "APPROVED",
   REJECT: "REJECTED",
 };
+
+const adminVisibleStatuses: RequestStatus[] = [
+  "SUBMITTED",
+  "UNDER_REVIEW",
+  "INFO_REQUESTED",
+  "APPROVED",
+  "REJECTED",
+  "CANCELLED",
+];
 
 export class AdminRequestService {
   static async list({
@@ -24,7 +33,10 @@ export class AdminRequestService {
     page: number;
     limit: number;
   }) {
-    const where = { communityId, ...(status ? { status } : {}) };
+    const where: Prisma.MoveRequestWhereInput = {
+      communityId,
+      status: status ?? { in: adminVisibleStatuses },
+    };
     const [items, total] = await prisma.$transaction([
       prisma.moveRequest.findMany({
         where,
@@ -44,7 +56,11 @@ export class AdminRequestService {
 
   static async get({ requestId, communityId }: { requestId: string; communityId: string }) {
     const request = await prisma.moveRequest.findFirst({
-      where: { id: requestId, communityId },
+      where: {
+        id: requestId,
+        communityId,
+        status: { in: adminVisibleStatuses },
+      },
       include: {
         resident: { select: { id: true, name: true, email: true } },
         unit: { select: { number: true, tower: true } },
