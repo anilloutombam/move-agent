@@ -32,17 +32,20 @@ export default function AdminPage() {
   const load = useCallback(
     async (token: string) => {
       setLoading(true);
-      const result = await api<{ items: MoveRequest[] }>(
-        "/admin/requests?limit=100",
-        token,
-      );
-      const visibleItems = result.items.filter((request) =>
-        adminVisibleStatuses.has(request.status),
-      );
-      setItems(visibleItems);
-      if (visibleItems[0]) await choose(visibleItems[0].id, token);
-      else setSelected(null);
-      setLoading(false);
+      try {
+        const result = await api<{ items: MoveRequest[] }>(
+          "/admin/requests?limit=100",
+          token,
+        );
+        const visibleItems = result.items.filter((request) =>
+          adminVisibleStatuses.has(request.status),
+        );
+        setItems(visibleItems);
+        if (visibleItems[0]) await choose(visibleItems[0].id, token);
+        else setSelected(null);
+      } finally {
+        setLoading(false);
+      }
     },
     [choose],
   );
@@ -87,6 +90,21 @@ export default function AdminPage() {
           <div>
             <h1>Move requests</h1>
             <p>Review requests for {session.user.community}.</p>
+          </div>
+          <div className="title-actions">
+            <button
+              className="btn"
+              disabled={loading || busy}
+              onClick={() =>
+                load(session.token).catch((caught) =>
+                  setError(
+                    caught instanceof Error ? caught.message : "Refresh failed",
+                  ),
+                )
+              }
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
         </div>
         {error && <div className="alert">{error}</div>}

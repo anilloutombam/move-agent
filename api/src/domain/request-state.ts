@@ -26,6 +26,7 @@ const transitions: Record<RequestStatus, readonly RequestStatus[]> = {
   INFO_REQUESTED: [
     "COLLECTING_INFORMATION",
     "READY_TO_SUBMIT",
+    "UNDER_REVIEW",
     "CANCELLED",
   ],
 
@@ -42,6 +43,7 @@ const actorTransitions: Record<WorkflowActor, readonly string[]> = {
     "COLLECTING_INFORMATION:CANCELLED",
     "READY_TO_SUBMIT:SUBMITTED",
     "READY_TO_SUBMIT:CANCELLED",
+    "INFO_REQUESTED:UNDER_REVIEW",
     "INFO_REQUESTED:CANCELLED",
   ],
   ADMIN: [
@@ -57,6 +59,35 @@ export function canTransition(
   to: RequestStatus,
 ): boolean {
   return transitions[from].includes(to);
+}
+
+export function residentSubmissionTarget(
+  from: RequestStatus,
+): Extract<RequestStatus, "SUBMITTED" | "UNDER_REVIEW"> {
+  if (from === "READY_TO_SUBMIT") return "SUBMITTED";
+  if (from === "INFO_REQUESTED") return "UNDER_REVIEW";
+  throw new DomainError("REQUEST_NOT_SUBMITTABLE");
+}
+
+export function residentSubmissionEventType(
+  from: RequestStatus,
+): "RESIDENT_INFORMATION_RESUBMITTED" | undefined {
+  return from === "INFO_REQUESTED"
+    ? "RESIDENT_INFORMATION_RESUBMITTED"
+    : undefined;
+}
+
+export function statusAfterResidentUpdate(
+  from: RequestStatus,
+  policyResult: "INCOMPLETE" | "PASS" | "WARNING" | "FAIL",
+): RequestStatus {
+  // Keep an administrator's information request open while the resident edits.
+  // Confirmation, not an individual field update, returns it to review.
+  if (from === "INFO_REQUESTED") return "INFO_REQUESTED";
+
+  return policyResult === "PASS" || policyResult === "WARNING"
+    ? "READY_TO_SUBMIT"
+    : "COLLECTING_INFORMATION";
 }
 
 export function assertTransition(

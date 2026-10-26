@@ -5,6 +5,11 @@ import {
   type MoveRequestData,
 } from "../domain/request-data.js";
 import type { MoveType } from "../generated/prisma/client.js";
+import {
+  residentSubmissionEventType,
+  residentSubmissionTarget,
+  statusAfterResidentUpdate,
+} from "../domain/request-state.js";
 import { evaluatePolicy } from "../policy/engine.js";
 import { parseCommunityPolicy } from "../policy/config.js";
 import { RequestWorkflowService } from "./request-workflow.js";
@@ -164,21 +169,11 @@ export class RequestService {
   }) {
     const request = await prisma.moveRequest.findFirst({
       where: { id: requestId, residentId, communityId },
-      include: {
-        assessments: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
     });
 
     if (!request) throw new DomainError("REQUEST_NOT_FOUND");
 
-    const latestAssessment = request.assessments[0];
-    if (
-      request.status !== "READY_TO_SUBMIT" ||
-      !latestAssessment ||
-      !["PASS", "WARNING"].includes(latestAssessment.result)
-    ) {
-      throw new DomainError("REQUEST_NOT_SUBMITTABLE");
-    }
+    const targetStatus = residentSubmissionTarget(request.status);
 
     const policyRecord = await prisma.communityPolicy.findUnique({
       where: {
@@ -188,6 +183,17 @@ export class RequestService {
     if (!policyRecord) throw new DomainError("POLICY_NOT_FOUND");
     const policy = parseCommunityPolicy(policyRecord.config);
     const requestData = request.requestData as MoveRequestData;
+    const assessment = evaluatePolicy({
+      type: request.type,
+      requestData,
+      policy,
+    });
+
+    if (!["PASS", "WARNING"].includes(assessment.result)) {
+      throw new DomainError("REQUEST_NOT_SUBMITTABLE", {
+        policyResult: assessment.result,
+      });
+    }
 
     if (requestData.moveDate && requestData.preferredTime) {
       const occupied = await prisma.moveRequest.count({
@@ -220,8 +226,9 @@ export class RequestService {
       actorId: residentId,
       actorRole: "RESIDENT",
       communityId,
-      to: "SUBMITTED",
+      to: targetStatus,
       expectedVersion,
+      eventType: residentSubmissionEventType(request.status),
     });
   }
 
@@ -305,10 +312,10 @@ export class RequestService {
       policy,
     });
 
-    const nextStatus =
-      assessment.result === "PASS" || assessment.result === "WARNING"
-        ? "READY_TO_SUBMIT"
-        : "COLLECTING_INFORMATION";
+    const nextStatus = statusAfterResidentUpdate(
+      moveRequest.status,
+      assessment.result,
+    );
 
     const updated = await tx.moveRequest.updateMany({
       where: {
@@ -350,6 +357,9 @@ export class RequestService {
         data: {
           policyResult: assessment.result,
           status: nextStatus,
+          ...(moveRequest.status === "INFO_REQUESTED"
+            ? { informationRequestResponse: true }
+            : {}),
         },
       },
     });

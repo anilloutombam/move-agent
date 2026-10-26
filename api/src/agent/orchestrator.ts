@@ -23,6 +23,40 @@ export class AgentOrchestrator {
     const confirmedAction = getConfirmedAction(content);
     let linkedRequestId = context.conversation.requestId;
 
+    if (
+      actor.role === "RESIDENT" &&
+      confirmedAction === "SUBMIT" &&
+      linkedRequestId &&
+      isJsonObject(context.request) &&
+      typeof context.request.version === "number"
+    ) {
+      const result = await executeTool(
+        {
+          id: "confirmed-resident-submit",
+          name: "submit_request",
+          arguments: { expectedVersion: context.request.version },
+        },
+        {
+          actor,
+          conversationId,
+          requestId: linkedRequestId,
+          confirmedAction,
+        },
+      );
+      const resubmitted =
+        isJsonObject(result) && result.status === "UNDER_REVIEW";
+      const message = await ConversationService.appendAgentMessage(
+        actor,
+        conversationId,
+        "ASSISTANT",
+        resubmitted
+          ? "Your additional information has been submitted and the request is back with the administrator for review."
+          : "Your request has been submitted for administrator review.",
+        { deterministicAction: "SUBMIT" } as Prisma.InputJsonValue,
+      );
+      return { message, requestId: linkedRequestId };
+    }
+
     for (let iteration = 0; iteration < this.maxIterations; iteration += 1) {
       const response = await this.provider.generate({
         systemPrompt: buildAgentPrompt(actor.role, {
@@ -56,6 +90,7 @@ export class AgentOrchestrator {
         { toolCalls: response.toolCalls } as Prisma.InputJsonValue,
       );
       messages.push({ role: "assistant", content: response.text, toolCalls: response.toolCalls });
+      let informationResponseSaved = false;
 
       for (const call of response.toolCalls) {
         let result: JsonValue;
@@ -69,6 +104,7 @@ export class AgentOrchestrator {
           if (call.name === "create_move_request" && isJsonObject(result) && typeof result.id === "string") {
             linkedRequestId = result.id;
           }
+          informationResponseSaved ||= isInformationResponseSaved(call, result);
         } catch (error) {
           if (!isDomainError(error)) throw error;
           result = { ok: false, error: error.code, details: toJsonValue(error.details ?? {}) };
@@ -87,10 +123,34 @@ export class AgentOrchestrator {
         );
         messages.push({ role: "tool", toolCallId: call.id, toolName: call.name, result });
       }
+
+      if (informationResponseSaved) {
+        const message = await ConversationService.appendAgentMessage(
+          actor,
+          conversationId,
+          "ASSISTANT",
+          "I saved the additional information. Please reply exactly “confirm submit” to return this request to the administrator for review.",
+          { deterministicAction: "REQUEST_RESUBMISSION_CONFIRMATION" } as Prisma.InputJsonValue,
+        );
+        return { message, requestId: linkedRequestId };
+      }
     }
 
     throw new DomainError("AGENT_ITERATION_LIMIT");
   }
+}
+
+export function isInformationResponseSaved(
+  call: LlmToolCall,
+  result: JsonValue,
+): boolean {
+  return (
+    call.name === "update_request_draft" &&
+    isJsonObject(result) &&
+    result.status === "INFO_REQUESTED" &&
+    isJsonObject(result.requestData) &&
+    typeof result.requestData.additionalInformation === "string"
+  );
 }
 
 function toLlmMessage(message: {

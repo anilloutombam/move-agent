@@ -41,6 +41,7 @@ export const moveRequestDataSchema = z.object({
     .transform((documents) => [...new Set(documents)])
     .optional(),
   elevatorBookingRequested: z.boolean().optional(),
+  additionalInformation: z.string().trim().min(1).max(2000).optional(),
 });
 
 export type MoveRequestData = z.infer<typeof moveRequestDataSchema>;

@@ -94,6 +94,13 @@ const specs: Record<string, ToolSpec> = {
                 },
               },
               elevatorBookingRequested: { type: "boolean" },
+              additionalInformation: {
+                type: "string",
+                minLength: 1,
+                maxLength: 2000,
+                description:
+                  "The resident's answer to the administrator's latest request for additional information. Preserve the useful details in plain language.",
+              },
             },
           },
         },
@@ -113,7 +120,7 @@ const specs: Record<string, ToolSpec> = {
       requestData,
     }),
   },
-  submit_request: residentAction("SUBMIT", "Submit the linked request after explicit resident confirmation.",
+  submit_request: residentAction("SUBMIT", "Submit a new request, or return an information-requested case to administrator review, after explicit resident confirmation.",
     (context, expectedVersion) => RequestService.submit({
       requestId: context.requestId!, residentId: context.actor.userId,
       communityId: context.actor.communityId, expectedVersion,
