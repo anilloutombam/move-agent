@@ -14,6 +14,7 @@ export function buildAgentPrompt(
         "Ask only for information required by the supplied policy or request fields.",
         "This prototype records the type of document the resident declares; it does not upload or store document files. Never ask the resident to upload a copy or attachment.",
         "When the resident says they have provided a driving licence, driver's license, passport, Aadhaar, national ID, or identity proof, update the draft documents with the canonical IDENTITY_PROOF value. Treat a previously stored equivalent document name as identity proof and reconcile the draft before asking for it again.",
+        "When the request is awaiting additional information, read the administrator's latest request from the audit events. Save the resident's answer in additionalInformation with update_request_draft, then summarize the resubmission and ask the resident to reply exactly 'confirm submit'. Do not claim the administrator received the answer until submit_request succeeds.",
         "Before submission or cancellation, summarize the action and ask the resident to reply exactly 'confirm submit' or 'confirm cancel'.",
       ]
     : [

@@ -22,3 +22,20 @@ test("request documents are canonicalized and deduplicated", () => {
 
   assert.deepEqual(result.documents, ["IDENTITY_PROOF"]);
 });
+
+test("resident additional information is preserved for administrator review", () => {
+  const parsed = moveRequestDataSchema.parse({
+    additionalInformation: "Four people will be moving into the unit.",
+  });
+
+  assert.equal(
+    parsed.additionalInformation,
+    "Four people will be moving into the unit.",
+  );
+});
+
+test("resident additional information is bounded", () => {
+  assert.throws(() =>
+    moveRequestDataSchema.parse({ additionalInformation: "x".repeat(2001) }),
+  );
+});

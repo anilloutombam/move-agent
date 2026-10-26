@@ -2,8 +2,6 @@
 
 Move Desk is a prototype move-in and move-out workflow for residential communities. Residents create requests through a conversational interface, the request is checked against community-specific policies, and an administrator reviews the submitted request.
 
-**Live demo:** [Move Desk](https://web-two-self-q0689vup1t.vercel.app/login)
-
 ## What it does
 
 - Resident and admin workflows
@@ -143,8 +141,13 @@ Do not commit `api/.env` or API keys.
 
 6. Sign out and continue as **Admin**.
 7. Open the submitted request and start the review.
-8. Approve, reject, or request more information.
-9. Return as **Resident** and open the request from history to see the updated status.
+8. Request more information, such as the number of people moving.
+9. Return as **Resident**, open the request from history, and provide the requested details.
+10. Send:
+
+    > confirm submit
+
+11. Return as **Admin** and refresh the request list. The request is back under review and the approve, request-information, and reject controls are available again.
 
 ## Policy configuration
 
@@ -177,7 +180,11 @@ DRAFT
 
 The API only accepts valid role-specific transitions.
 
-Request submission and administrative decisions require explicit confirmation. The LLM cannot directly change request status or bypass these checks.
+While a resident is answering an administrator's information request, edits keep the request in `INFO_REQUESTED`. After the resident explicitly confirms resubmission, the backend revalidates the pinned policy and slot availability and transitions the request directly back to `UNDER_REVIEW`.
+
+Every mutation is scoped to the authenticated resident or administrator and community. Clients send the request version they last read; the database update matches that version and increments it atomically, returning a conflict if another update won the race. Resident information updates, resubmissions, and administrator decisions are recorded as audit events.
+
+Request submission, resubmission, and administrative decisions require explicit confirmation. The LLM can collect structured information and invoke restricted tools, but it cannot directly change request status or bypass authorization, policy validation, optimistic version checks, or confirmation requirements.
 
 ## Validation
 
